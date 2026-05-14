@@ -40,9 +40,10 @@ const char* SERVER_BASE_URL = "http://YOUR_COMPUTER_IP:5000";
 const char* DEVICE_ID = "child-spoon-01";
 
 // Wireless/battery demo settings.
-const bool WIRELESS_AUTO_DEMO_MODE = false;  // true starts recording immediately after boot.
+const bool WIRELESS_AUTO_DEMO_MODE = true;   // true starts recording immediately after boot.
 const int RECORD_BUTTON_PIN = D1;            // Connect button between D1 and GND. Set to -1 to disable.
-const unsigned long AUTO_FIRST_BITE_DELAY_MS = 5000UL;
+const unsigned long AUTO_FIRST_BITE_DELAY_MS = 12000UL;
+const unsigned long AUTO_NEXT_MEAL_DELAY_MS = 15000UL;
 const int AUTO_SUMMARY_AFTER_FRAMES = 3;  // Set to 0 to disable auto summary.
 
 // For automatic spoonful sampling after meal start.
@@ -78,6 +79,7 @@ bool firstBiteUploaded = false;
 int uploadedFrameCount = 0;
 unsigned long lastMealFrameAt = 0;
 unsigned long nextAutoFirstBiteAt = 0;
+unsigned long nextAutoMealAt = 0;
 bool lastRecordButtonState = HIGH;
 
 #ifdef LED_BUILTIN
@@ -288,7 +290,11 @@ String newMealId() {
   return String(buf);
 }
 
-void doPremealScan() {
+bool uploadSucceeded(const String& response) {
+  return response.indexOf("\"success\":true") >= 0 || response.indexOf("\"success\": true") >= 0;
+}
+
+bool doPremealScan() {
   if (currentMealId.length() == 0) {
     currentMealId = newMealId();
   }
@@ -299,16 +305,21 @@ void doPremealScan() {
   if (!fb) {
     Serial.println("[Camera] first-bite capture failed");
     setStatusLed(false);
-    return;
+    return false;
   }
 
   String response = uploadMultipart(fb, "/api/premeal", currentMealId, "premeal");
   esp_camera_fb_return(fb);
   setStatusLed(false);
-  firstBiteUploaded = true;
 
   Serial.println("[Meal] first-bite result:");
   Serial.println(response);
+  bool ok = uploadSucceeded(response);
+  firstBiteUploaded = ok;
+  if (!ok) {
+    Serial.println("[Meal] first-bite upload failed, will retry");
+  }
+  return ok;
 }
 
 void startMealSession() {
@@ -324,10 +335,10 @@ void startMealSession() {
   Serial.printf("[Meal] first bite will capture in %lu ms\n", AUTO_FIRST_BITE_DELAY_MS);
 }
 
-void uploadMealFrame() {
+bool uploadMealFrame() {
   if (!mealActive || currentMealId.length() == 0) {
     Serial.println("[Meal] no active meal session");
-    return;
+    return false;
   }
 
   setStatusLed(true);
@@ -335,16 +346,22 @@ void uploadMealFrame() {
   if (!fb) {
     Serial.println("[Camera] meal frame capture failed");
     setStatusLed(false);
-    return;
+    return false;
   }
 
   String response = uploadMultipart(fb, "/api/frame", currentMealId, "inmeal");
   esp_camera_fb_return(fb);
   setStatusLed(false);
-  uploadedFrameCount++;
 
   Serial.println("[Meal] frame result:");
   Serial.println(response);
+  bool ok = uploadSucceeded(response);
+  if (ok) {
+    uploadedFrameCount++;
+  } else {
+    Serial.println("[Meal] frame upload failed, not counted");
+  }
+  return ok;
 }
 
 void endMealSession() {
@@ -360,6 +377,10 @@ void endMealSession() {
   currentMealId = "";
   firstBiteUploaded = false;
   uploadedFrameCount = 0;
+  if (WIRELESS_AUTO_DEMO_MODE) {
+    nextAutoMealAt = millis() + AUTO_NEXT_MEAL_DELAY_MS;
+    Serial.printf("[Auto] next meal will start in %lu ms\n", AUTO_NEXT_MEAL_DELAY_MS);
+  }
 }
 
 void printHelp() {
@@ -440,9 +461,17 @@ void loop() {
 
   unsigned long now = millis();
 
+  if (WIRELESS_AUTO_DEMO_MODE && !mealActive && currentMealId.length() == 0 && nextAutoMealAt > 0 && now >= nextAutoMealAt) {
+    startMealSession();
+    nextAutoMealAt = 0;
+  }
+
   if (mealActive && !firstBiteUploaded && now >= nextAutoFirstBiteAt) {
-    doPremealScan();
+    bool ok = doPremealScan();
     lastMealFrameAt = now;
+    if (!ok) {
+      nextAutoFirstBiteAt = now + MEAL_FRAME_INTERVAL_MS;
+    }
   }
 
   if (mealActive && firstBiteUploaded && now - lastMealFrameAt >= MEAL_FRAME_INTERVAL_MS) {
