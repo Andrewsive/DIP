@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local runtime files
+.env
+uploads/*
+backend/uploads/*
+!backend/uploads/.gitkeep
+*.log
+
+# Arduino / local build artifacts
+*.bin
+*.elf
+*.map
+
+# Local duplicate sketches kept during prototyping
+/child_spoon_demo.ino
+/server.py
+/requirements.txt
+/child_spoon_demo_full/
+/child_spoon_demo_minimal/
+/child_spoon_demo_upload/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
