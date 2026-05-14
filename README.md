@@ -23,7 +23,6 @@ child_spoon_demo/
 - Seeed Studio XIAO ESP32S3 Sense
 - OV5640 camera module
 - 3.7V LiPo battery connected to `BAT+` and `GND`
-- Optional voice feedback module for later prototype iterations
 
 ## Backend Setup
 
@@ -40,6 +39,14 @@ http://127.0.0.1:5000/
 ```
 
 API notes for the parent-side frontend are in `docs/API.md`.
+
+For parent-side frontend integration, use:
+
+```text
+GET http://127.0.0.1:5000/api/latest
+```
+
+If the frontend runs on another device in the same Wi-Fi network, replace `127.0.0.1` with the computer's LAN IP, for example `http://YOUR_COMPUTER_IP:5000/api/latest`.
 
 Health check:
 

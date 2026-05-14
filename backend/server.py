@@ -37,6 +37,16 @@ _load_env_file()
 
 app = Flask(__name__)
 
+
+@app.after_request
+def add_dev_cors_headers(response):
+    # Allow the parent-side frontend prototype to run from a separate local dev server.
+    response.headers["Access-Control-Allow-Origin"] = os.getenv("CORS_ALLOW_ORIGIN", "*")
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    return response
+
+
 # Demo-stage in-memory store. Restarting the backend clears it.
 MEALS: dict[str, dict[str, Any]] = {}
 
@@ -66,7 +76,6 @@ MOCK_PREMEAL = {
         "balance": "单口信息不足以判断整餐",
     },
     "parent_message": "已识别当前这一口主要为主食，可继续累计多口结果后判断摄入结构。",
-    "child_message": "小勺看到这一口啦，继续吃饭吧。",
 }
 
 
@@ -124,7 +133,7 @@ def _mock_premeal_analysis() -> dict[str, Any]:
 
 def _mock_frame_analysis(frame_index: int) -> dict[str, Any]:
     result = MOCK_FRAME_SEQUENCE[frame_index % len(MOCK_FRAME_SEQUENCE)].copy()
-    result["child_message"] = "慢慢吃更好哦" if result["pace_hint"] == "fast" else "吃得真不错"
+    result["parent_observation"] = f"本口主要识别为{result['label_zh']}，归类为{result['food_group']}。"
     return result
 
 
@@ -182,6 +191,12 @@ def _extract_json_object(text: str) -> dict[str, Any]:
         raise
 
 
+def _strip_removed_child_feedback(payload: dict[str, Any]) -> dict[str, Any]:
+    payload.pop("child_message", None)
+    payload.pop("child_feedback", None)
+    return payload
+
+
 def _analyze_with_llm(image_path: Path, mode: str) -> dict[str, Any]:
     client = _model_client()
     if client is None:
@@ -193,17 +208,17 @@ def _analyze_with_llm(image_path: Path, mode: str) -> dict[str, Any]:
             "This is a classroom prototype, so rough estimation is acceptable. Focus on the current bite, not the whole plate. "
             "Use canonical English keys when possible: rice, noodles, bread, corn, chicken, egg, tofu, broccoli, carrot, bok_choy, apple, banana. "
             "Estimate rough grams for the visible bite contents. "
-            "Return only valid JSON with fields: identified_items, structure_assessment, parent_message, child_message. "
+            "Return only valid JSON with fields: identified_items, structure_assessment, parent_message. "
             "identified_items is an array of objects with name, label_zh, estimated_grams. "
-            "structure_assessment contains main_food, protein, vegetable, balance. Use Chinese for label_zh and messages."
+            "structure_assessment contains main_food, protein, vegetable, balance. Use Chinese for label_zh and parent_message."
         )
     else:
         prompt = (
             "You are analyzing one spoon-mounted camera frame during a child's meal. "
             "Focus on the food currently in or nearest the spoon. "
-            "Return only valid JSON with fields: dominant_food_name, label_zh, food_group, pace_hint, child_message. "
+            "Return only valid JSON with fields: dominant_food_name, label_zh, food_group, pace_hint, parent_observation. "
             "food_group must be one of: 主食, 蛋白质, 蔬菜, 水果, 混合, 未知. "
-            "pace_hint must be one of: slow, normal, fast, unknown. Use Chinese for label_zh and child_message."
+            "pace_hint must be one of: slow, normal, fast, unknown. Use Chinese for label_zh and parent_observation."
         )
 
     response = client.chat.completions.create(
@@ -226,7 +241,7 @@ def _analyze_with_llm(image_path: Path, mode: str) -> dict[str, Any]:
         nutrition = _nutrition_for_items(parsed.get("identified_items", []))
         parsed["nutrition_estimate"] = nutrition["totals"]
         parsed["planned_groups"] = nutrition["groups"]
-    return parsed
+    return _strip_removed_child_feedback(parsed)
 
 
 def analyze_image(image_path: Path, mode: str, meal: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -236,7 +251,7 @@ def analyze_image(image_path: Path, mode: str, meal: dict[str, Any] | None = Non
             result["success"] = True
             result["mode"] = _model_mode()
             result["model"] = _model_name()
-            return result
+            return _strip_removed_child_feedback(result)
         except Exception as exc:
             fallback = _mock_premeal_analysis() if mode == "premeal" else _mock_frame_analysis(len((meal or {}).get("frames", [])))
             return {
@@ -250,7 +265,7 @@ def analyze_image(image_path: Path, mode: str, meal: dict[str, Any] | None = Non
     result = _mock_premeal_analysis() if mode == "premeal" else _mock_frame_analysis(len((meal or {}).get("frames", [])))
     result["success"] = True
     result["mode"] = "mock"
-    return result
+    return _strip_removed_child_feedback(result)
 
 
 def _get_or_create_meal(meal_id: str, device_id: str) -> dict[str, Any]:
@@ -300,7 +315,6 @@ def _build_summary(meal: dict[str, Any]) -> dict[str, Any]:
         "deviation_analysis": deviation,
         "attribution": attribution,
         "parent_summary": " ".join(deviation + [attribution]),
-        "child_feedback": "今天吃饭很认真，我们下次也试试换一口不同的食物吧。",
     }
 
 

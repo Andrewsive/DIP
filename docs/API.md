@@ -22,7 +22,7 @@ http://YOUR_COMPUTER_IP:5000
 2. The device uploads the first spoonful image to `/api/premeal`.
 3. The device uploads subsequent spoonful images to `/api/frame`.
 4. The device calls `/api/summary` when the meal ends.
-5. The parent app can render the returned JSON or use the dashboard at `/`.
+5. The parent app can poll `/api/latest` to render the newest meal result, or use the dashboard at `/` for quick debugging.
 
 ## GET /health
 
@@ -39,6 +39,27 @@ Example response:
 ```
 
 `mode` is `mock` by default, `bailian` when `DASHSCOPE_API_KEY` is set, and `openai` when `OPENAI_API_KEY` is set. If the real API call fails, individual analysis results may fall back to mock data and include `mode: "fallback_mock"` plus an `error` message.
+
+## GET /api/latest
+
+Returns the newest meal stored in backend memory. This is the easiest endpoint for the parent-side frontend demo because the ESP32 board writes data into the backend first, then the frontend only needs to read the latest state.
+
+Example response:
+
+```json
+{
+  "success": true,
+  "meal": {
+    "meal_id": "meal-abc123-10",
+    "device_id": "child-spoon-01",
+    "premeal": {},
+    "frames": []
+  },
+  "summary": {}
+}
+```
+
+For local frontend development, CORS headers are enabled by default. If needed, set `CORS_ALLOW_ORIGIN` in `backend/.env`.
 
 ## POST /api/premeal
 
@@ -87,7 +108,6 @@ Example response:
       "balance": "单口信息不足以判断整餐"
     },
     "parent_message": "已识别当前这一口主要为主食，可继续累计多口结果后判断摄入结构。",
-    "child_message": "小勺看到这一口啦，继续吃饭吧。"
   }
 }
 ```
@@ -123,7 +143,7 @@ Example response:
     "label_zh": "米饭",
     "food_group": "主食",
     "pace_hint": "normal",
-    "child_message": "吃得真不错"
+    "parent_observation": "本口主要识别为米饭，归类为主食。"
   }
 }
 ```
@@ -194,8 +214,7 @@ Example response:
       "连续多口以主食为主，存在摄入结构失衡风险。"
     ],
     "attribution": "主要表现为实际摄入偏好问题：孩子连续多口未摄入蔬菜。",
-    "parent_summary": "当前记录中未观察到蔬菜摄入，存在蔬菜摄入不足风险。",
-    "child_feedback": "今天吃饭很认真，我们下次也试试换一口不同的食物吧。"
+    "parent_summary": "当前记录中未观察到蔬菜摄入，存在蔬菜摄入不足风险。"
   }
 }
 ```
