@@ -40,7 +40,7 @@ const char* SERVER_BASE_URL = "http://YOUR_COMPUTER_IP:5000";
 const char* DEVICE_ID = "child-spoon-01";
 
 // Wireless/battery demo settings.
-const bool WIRELESS_AUTO_DEMO_MODE = true;   // true starts recording immediately after boot.
+const bool WIRELESS_AUTO_DEMO_MODE = false;  // true starts recording immediately after boot.
 const int RECORD_BUTTON_PIN = D1;            // Connect button between D1 and GND. Set to -1 to disable.
 const unsigned long AUTO_FIRST_BITE_DELAY_MS = 12000UL;
 const unsigned long AUTO_NEXT_MEAL_DELAY_MS = 15000UL;

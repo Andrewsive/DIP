@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import time
 import uuid
-from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -15,9 +15,29 @@ APP_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = APP_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 
+
+def _load_env_file() -> None:
+    """Load local backend/.env values without adding an extra dependency."""
+    env_path = APP_DIR / ".env"
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_env_file()
+
 app = Flask(__name__)
 
-# Demo-stage in-memory store is enough for classroom use.
+# Demo-stage in-memory store. Restarting the backend clears it.
 MEALS: dict[str, dict[str, Any]] = {}
 
 
@@ -38,9 +58,7 @@ NUTRITION_DB = {
 
 
 MOCK_PREMEAL = {
-    "identified_items": [
-        {"name": "rice", "label_zh": "米饭", "estimated_grams": 18},
-    ],
+    "identified_items": [{"name": "rice", "label_zh": "米饭", "estimated_grams": 18}],
     "structure_assessment": {
         "main_food": "本口为主食",
         "protein": "未检测到",
@@ -70,13 +88,6 @@ def _save_upload(file_storage, prefix: str) -> Path:
     path = UPLOAD_DIR / file_name
     file_storage.save(path)
     return path
-
-
-def _safe_json_loads(text: str) -> dict[str, Any]:
-    try:
-        return json.loads(text)
-    except Exception:
-        return {"raw_text": text}
 
 
 def _nutrition_for_items(items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -117,126 +128,100 @@ def _mock_frame_analysis(frame_index: int) -> dict[str, Any]:
     return result
 
 
-def _openai_client():
-    api_key = os.getenv("OPENAI_API_KEY")
+def _model_client():
+    api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("OPENAI_API_KEY")
     if not api_key:
         return None
+
     from openai import OpenAI
 
     base_url = os.getenv("OPENAI_BASE_URL")
+    if not base_url and os.getenv("DASHSCOPE_API_KEY"):
+        base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
     kwargs: dict[str, Any] = {"api_key": api_key}
     if base_url:
         kwargs["base_url"] = base_url
     return OpenAI(**kwargs)
 
 
-def _openai_schema_for_premeal() -> dict[str, Any]:
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "identified_items": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "name": {"type": "string"},
-                        "label_zh": {"type": "string"},
-                        "estimated_grams": {"type": "number"},
-                    },
-                    "required": ["name", "label_zh", "estimated_grams"],
-                },
-            },
-            "structure_assessment": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "main_food": {"type": "string"},
-                    "protein": {"type": "string"},
-                    "vegetable": {"type": "string"},
-                    "balance": {"type": "string"},
-                },
-                "required": ["main_food", "protein", "vegetable", "balance"],
-            },
-            "parent_message": {"type": "string"},
-            "child_message": {"type": "string"},
-        },
-        "required": ["identified_items", "structure_assessment", "parent_message", "child_message"],
-    }
+def _model_name() -> str:
+    if os.getenv("OPENAI_MODEL"):
+        return os.getenv("OPENAI_MODEL", "")
+    if os.getenv("DASHSCOPE_API_KEY"):
+        return "qwen-vl-plus"
+    return "gpt-4.1-mini"
 
 
-def _openai_schema_for_frame() -> dict[str, Any]:
-    return {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {
-            "dominant_food_name": {"type": "string"},
-            "label_zh": {"type": "string"},
-            "food_group": {"type": "string"},
-            "pace_hint": {"type": "string"},
-            "child_message": {"type": "string"},
-        },
-        "required": ["dominant_food_name", "label_zh", "food_group", "pace_hint", "child_message"],
-    }
+def _model_mode() -> str:
+    if os.getenv("DASHSCOPE_API_KEY"):
+        return "bailian"
+    if os.getenv("OPENAI_API_KEY"):
+        return "openai"
+    return "mock"
 
 
-def _analyze_with_openai(image_path: Path, mode: str) -> dict[str, Any]:
-    client = _openai_client()
+def _image_data_url(image_path: Path) -> str:
+    encoded = base64.b64encode(image_path.read_bytes()).decode("utf-8")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`").strip()
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:].strip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start >= 0 and end > start:
+            return json.loads(cleaned[start : end + 1])
+        raise
+
+
+def _analyze_with_llm(image_path: Path, mode: str) -> dict[str, Any]:
+    client = _model_client()
     if client is None:
-        raise RuntimeError("OPENAI_API_KEY is not set")
-
-    with image_path.open("rb") as f:
-        uploaded = client.files.create(file=f, purpose="vision")
+        raise RuntimeError("DASHSCOPE_API_KEY or OPENAI_API_KEY is not set")
 
     if mode == "premeal":
         prompt = (
             "You are analyzing the food currently held in a child's spoon from a spoon-mounted camera view. "
-            "This is for a classroom prototype, so rough estimation is acceptable. "
-            "Focus on the current bite rather than the whole plate. "
-            "Identify the most likely food in this bite using short canonical English keys where possible from this set: "
-            "rice, noodles, bread, corn, chicken, egg, tofu, broccoli, carrot, bok_choy, apple, banana. "
+            "This is a classroom prototype, so rough estimation is acceptable. Focus on the current bite, not the whole plate. "
+            "Use canonical English keys when possible: rice, noodles, bread, corn, chicken, egg, tofu, broccoli, carrot, bok_choy, apple, banana. "
             "Estimate rough grams for the visible bite contents. "
-            "Then judge what nutrient group this bite mainly belongs to. "
-            "Return a short parent-facing sentence describing this bite and one friendly child-facing sentence. "
-            "Return only the requested JSON."
+            "Return only valid JSON with fields: identified_items, structure_assessment, parent_message, child_message. "
+            "identified_items is an array of objects with name, label_zh, estimated_grams. "
+            "structure_assessment contains main_food, protein, vegetable, balance. Use Chinese for label_zh and messages."
         )
-        schema = _openai_schema_for_premeal()
-        schema_name = "child_meal_premeal"
     else:
         prompt = (
-            "You are analyzing one in-meal spoon-camera frame during a child's meal. "
-            "Focus on the food currently nearest the spoon or dominating the frame. "
-            "Return a coarse food group among 主食, 蛋白质, 蔬菜, 水果, 其他. "
-            "Infer pace_hint as slow, normal, or fast only as a rough classroom-demo approximation. "
-            "Provide one short, positive child-facing guidance sentence. "
-            "Return only the requested JSON."
+            "You are analyzing one spoon-mounted camera frame during a child's meal. "
+            "Focus on the food currently in or nearest the spoon. "
+            "Return only valid JSON with fields: dominant_food_name, label_zh, food_group, pace_hint, child_message. "
+            "food_group must be one of: 主食, 蛋白质, 蔬菜, 水果, 混合, 未知. "
+            "pace_hint must be one of: slow, normal, fast, unknown. Use Chinese for label_zh and child_message."
         )
-        schema = _openai_schema_for_frame()
-        schema_name = "child_meal_frame"
 
-    response = client.responses.create(
-        model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
-        input=[
+    response = client.chat.completions.create(
+        model=_model_name(),
+        messages=[
             {
                 "role": "user",
                 "content": [
-                    {"type": "input_text", "text": prompt},
-                    {"type": "input_image", "file_id": uploaded.id},
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": _image_data_url(image_path)}},
                 ],
             }
         ],
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": schema_name,
-                "schema": schema,
-                "strict": True,
-            }
-        },
+        temperature=0.2,
     )
 
-    parsed = _safe_json_loads(response.output_text)
+    text = response.choices[0].message.content or "{}"
+    parsed = _extract_json_object(text)
     if mode == "premeal":
         nutrition = _nutrition_for_items(parsed.get("identified_items", []))
         parsed["nutrition_estimate"] = nutrition["totals"]
@@ -245,25 +230,24 @@ def _analyze_with_openai(image_path: Path, mode: str) -> dict[str, Any]:
 
 
 def analyze_image(image_path: Path, mode: str, meal: dict[str, Any] | None = None) -> dict[str, Any]:
-    if os.getenv("OPENAI_API_KEY"):
+    if _model_mode() != "mock":
         try:
-            result = _analyze_with_openai(image_path, mode)
+            result = _analyze_with_llm(image_path, mode)
             result["success"] = True
-            result["mode"] = "openai"
+            result["mode"] = _model_mode()
+            result["model"] = _model_name()
             return result
         except Exception as exc:
             fallback = _mock_premeal_analysis() if mode == "premeal" else _mock_frame_analysis(len((meal or {}).get("frames", [])))
             return {
                 "success": False,
                 "mode": "fallback_mock",
-                "error": f"openai_analysis_failed: {exc}",
+                "model": _model_name(),
+                "error": f"llm_analysis_failed: {exc}",
                 **fallback,
             }
 
-    if mode == "premeal":
-        result = _mock_premeal_analysis()
-    else:
-        result = _mock_frame_analysis(len((meal or {}).get("frames", [])))
+    result = _mock_premeal_analysis() if mode == "premeal" else _mock_frame_analysis(len((meal or {}).get("frames", [])))
     result["success"] = True
     result["mode"] = "mock"
     return result
@@ -284,58 +268,46 @@ def _get_or_create_meal(meal_id: str, device_id: str) -> dict[str, Any]:
 
 
 def _build_summary(meal: dict[str, Any]) -> dict[str, Any]:
+    groups: dict[str, int] = {}
+    paces: dict[str, int] = {}
+
+    for frame in meal.get("frames", []):
+        group = frame.get("food_group") or "未知"
+        pace = frame.get("pace_hint") or "unknown"
+        groups[group] = groups.get(group, 0) + 1
+        paces[pace] = paces.get(pace, 0) + 1
+
+    deviation: list[str] = []
+    if groups and groups.get("蔬菜", 0) == 0:
+        deviation.append("当前记录中未观察到蔬菜摄入，存在蔬菜摄入不足风险。")
+    if groups.get("主食", 0) >= 2 and groups.get("蔬菜", 0) == 0:
+        deviation.append("连续多口以主食为主，存在摄入结构失衡风险。")
+    if paces.get("fast", 0) > 0:
+        deviation.append("部分摄入节奏偏快，可引导孩子慢一点吃。")
+    if not deviation:
+        deviation.append("当前摄入结构暂未发现明显偏差，可继续观察更多单口数据。")
+
+    attribution = "主要表现为实际摄入偏好问题：孩子连续多口未摄入蔬菜。" if groups.get("蔬菜", 0) == 0 else "当前偏差较轻，建议继续累计更多餐次观察。"
+
     premeal = meal.get("premeal") or {}
-    frames = meal.get("frames", [])
-
-    actual_counts: dict[str, int] = {}
-    pace_counts: dict[str, int] = {}
-    for frame in frames:
-        group = frame.get("food_group", "其他")
-        actual_counts[group] = actual_counts.get(group, 0) + 1
-        pace = frame.get("pace_hint", "normal")
-        pace_counts[pace] = pace_counts.get(pace, 0) + 1
-
-    deviation_notes = []
-    if actual_counts.get("蔬菜", 0) == 0 and len(frames) > 0:
-        deviation_notes.append("当前记录中未观察到蔬菜摄入，存在蔬菜摄入不足风险。")
-    if actual_counts.get("主食", 0) > actual_counts.get("蛋白质", 0) + actual_counts.get("蔬菜", 0) and len(frames) > 1:
-        deviation_notes.append("连续多口以主食为主，存在摄入结构失衡风险。")
-    if pace_counts.get("fast", 0) >= 2:
-        deviation_notes.append("进食速度偏快，建议加强节奏引导。")
-    if not deviation_notes:
-        deviation_notes.append("当前摄入序列较平稳，尚未观察到明显偏食趋势。")
-
-    if actual_counts.get("蔬菜", 0) == 0 and len(frames) >= 3:
-        attribution = "主要表现为实际摄入偏好问题：孩子连续多口未摄入蔬菜。"
-    elif actual_counts.get("主食", 0) >= 2 and actual_counts.get("蛋白质", 0) == 0:
-        attribution = "当前摄入更偏向主食，蛋白质摄入偏少。"
-    else:
-        attribution = "当前记录下的实际摄入结构相对均衡。"
-
-    child_feedback = "今天吃饭很认真，我们下次也试试换一口不同的食物吧。"
-    if pace_counts.get("fast", 0) >= 2:
-        child_feedback = "慢慢吃会更舒服，小勺陪你慢一点。"
-
-    parent_summary = " ".join(deviation_notes + [attribution])
-
     return {
         "meal_id": meal["meal_id"],
-        "captured_frames": len(frames),
-        "first_bite_estimate": premeal.get("nutrition_estimate", {}),
-        "first_bite_assessment": premeal.get("structure_assessment", {}),
-        "actual_intake_proxy": actual_counts,
-        "pace_observation": pace_counts,
-        "deviation_analysis": deviation_notes,
+        "captured_frames": len(meal.get("frames", [])),
+        "planned_nutrition_estimate": premeal.get("nutrition_estimate", {}),
+        "planned_structure": premeal.get("structure_assessment", {}),
+        "actual_intake_proxy": groups,
+        "pace_observation": paces,
+        "deviation_analysis": deviation,
         "attribution": attribution,
-        "child_feedback": child_feedback,
-        "parent_summary": parent_summary,
+        "parent_summary": " ".join(deviation + [attribution]),
+        "child_feedback": "今天吃饭很认真，我们下次也试试换一口不同的食物吧。",
     }
 
 
 def _latest_meal() -> dict[str, Any] | None:
     if not MEALS:
         return None
-    return list(MEALS.values())[-1]
+    return next(reversed(MEALS.values()))
 
 
 def _dashboard_html(meal: dict[str, Any] | None) -> str:
@@ -345,197 +317,118 @@ def _dashboard_html(meal: dict[str, Any] | None) -> str:
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <title>儿童勺具配件 · 家长端结果页</title>
+      <title>儿童勺具配件 - 家长端结果页</title>
       <style>
-        :root {
-          --paper: rgba(255,255,255,.82);
-          --ink: #17303d;
-          --muted: #5b6a73;
-          --accent: #2f7179;
-          --line: rgba(23,48,61,.08);
-        }
-        * { box-sizing: border-box; }
-        body {
-          margin: 0;
-          font-family: "PingFang SC","Microsoft YaHei",sans-serif;
-          color: var(--ink);
-          background:
-            radial-gradient(circle at 8% 12%, #fff3dc 0, transparent 22%),
-            radial-gradient(circle at 92% 10%, #d9efea 0, transparent 20%),
-            linear-gradient(180deg, #f8f4ed 0%, #eef4f6 100%);
-        }
-        .wrap { max-width: 1200px; margin: 0 auto; padding: 44px 24px 72px; }
-        .hero { display: flex; justify-content: space-between; gap: 16px; align-items: end; margin-bottom: 26px; }
-        h1 { margin: 0 0 10px; font-size: 38px; line-height: 1.2; }
-        .lead { margin: 0; color: var(--muted); font-size: 18px; line-height: 1.7; max-width: 780px; }
-        .badge { background: var(--paper); border: 1px solid var(--line); border-radius: 999px; padding: 10px 16px; color: var(--muted); font-size: 14px; white-space: nowrap; }
-        .grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 20px; }
-        .card { background: var(--paper); border: 1px solid var(--line); border-radius: 24px; padding: 22px; box-shadow: 0 16px 36px rgba(33,56,74,.08); backdrop-filter: blur(10px); }
-        .card h2 { margin: 0 0 14px; font-size: 22px; }
-        .meta { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
-        .chip { border-radius: 999px; padding: 8px 12px; background: #fff; border: 1px solid var(--line); font-size: 14px; color: var(--muted); }
-        .stack { display: grid; gap: 18px; }
-        .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-        .metric { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 14px 16px; }
-        .metric .label { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
-        .metric .value { font-size: 26px; font-weight: 700; }
-        .section-title { margin: 0 0 10px; font-size: 16px; color: var(--muted); }
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f3eb; color: #18313c; }
+        .wrap { max-width: 1180px; margin: 0 auto; padding: 48px 28px; }
+        h1 { font-size: 42px; margin: 0 0 12px; }
+        h2 { margin: 0 0 16px; font-size: 24px; }
+        .sub { color: #667681; max-width: 760px; line-height: 1.8; }
+        .badge { display: inline-block; padding: 10px 18px; border-radius: 999px; background: #fff; margin-top: 8px; }
+        .grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 24px; margin-top: 32px; }
+        .card { background: rgba(255,255,255,.88); border: 1px solid rgba(0,0,0,.06); border-radius: 24px; padding: 28px; box-shadow: 0 18px 45px rgba(30,48,54,.08); }
+        .chips { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 20px; }
+        .chip { padding: 8px 14px; border: 1px solid #e8e2d8; border-radius: 999px; background: #fff; color: #667681; }
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+        .stat { padding: 18px; border: 1px solid #eee7dc; border-radius: 18px; background: #fff; }
+        .stat b { display: block; margin-top: 10px; font-size: 22px; }
         .list { display: grid; gap: 10px; }
-        .list-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; }
-        .tone-box { background: linear-gradient(180deg, #ffffff 0%, #f7fbfc 100%); border: 1px solid var(--line); border-radius: 18px; padding: 16px; line-height: 1.7; }
-        .warn-box { background: linear-gradient(180deg, #fff9ef 0%, #fff4dd 100%); border: 1px solid rgba(224, 167, 79, .22); border-radius: 18px; padding: 16px; line-height: 1.7; }
-        .frames { display: grid; gap: 10px; }
-        .frame-row { display: grid; grid-template-columns: 96px 1fr auto; gap: 12px; align-items: center; padding: 12px; background: #fff; border: 1px solid var(--line); border-radius: 16px; }
-        .frame-index { font-weight: 700; color: var(--accent); }
-        .empty { padding: 32px 24px; text-align: center; color: var(--muted); }
-        @media (max-width: 960px) {
-          .grid { grid-template-columns: 1fr; }
-          .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        }
+        .item { display: flex; justify-content: space-between; gap: 18px; padding: 14px 16px; border: 1px solid #eee7dc; border-radius: 16px; background: #fff; }
+        .tone { background: #fff7e8; border: 1px solid #f3deba; border-radius: 18px; padding: 18px; line-height: 1.8; }
+        .empty { text-align: center; color: #667681; margin-top: 34px; }
       </style>
     </head>
     <body>
       <div class="wrap">
-        <div class="hero">
-          <div>
-            <h1>儿童勺具配件 · 家长端结果页</h1>
-            <p class="lead">展示最近一餐的单口识别结果、连续摄入观察和餐后摄入结构总结。适合作为课堂 demo 展示页、录屏页和汇报中的“家长端应用原型”。</p>
-          </div>
-          <div class="badge">模式：{{ mode }}</div>
-        </div>
-
+        <h1>儿童勺具配件 · 家长端结果页</h1>
+        <div class="sub">展示最近一餐的单口识别结果、连续摄入观察和餐后摄入结构总结。适合作为课堂 demo、录屏和前端联调参考。</div>
+        <div class="badge">模式：{{ mode }}</div>
         {% if meal %}
-          {% set premeal = meal.premeal or {} %}
+          {% set pre = meal.get('premeal') or {} %}
           {% set summary = summary_payload or {} %}
+          {% set nutrition = pre.get('nutrition_estimate', {}) %}
           <div class="grid">
-            <div class="stack">
+            <div>
               <div class="card">
                 <h2>本餐概览</h2>
-                <div class="meta">
-                  <div class="chip">Meal ID：{{ meal.meal_id }}</div>
-                  <div class="chip">设备：{{ meal.device_id }}</div>
-                  <div class="chip">已识别勺口：{{ summary.get('captured_frames', 0) }} 次</div>
+                <div class="chips">
+                  <div class="chip">Meal ID：{{ meal.get('meal_id') }}</div>
+                  <div class="chip">设备：{{ meal.get('device_id') }}</div>
+                  <div class="chip">已识别小口：{{ meal.get('frames', [])|length }} 次</div>
                 </div>
-                <div class="metrics">
-                  <div class="metric"><div class="label">首口热量估计</div><div class="value">{{ summary.get('first_bite_estimate', {}).get('kcal', '-') }}</div></div>
-                  <div class="metric"><div class="label">首口蛋白质</div><div class="value">{{ summary.get('first_bite_estimate', {}).get('protein', '-') }}</div></div>
-                  <div class="metric"><div class="label">首口碳水</div><div class="value">{{ summary.get('first_bite_estimate', {}).get('carbs', '-') }}</div></div>
-                  <div class="metric"><div class="label">首口脂肪</div><div class="value">{{ summary.get('first_bite_estimate', {}).get('fat', '-') }}</div></div>
+                <div class="stats">
+                  <div class="stat">首口热量<b>{{ nutrition.get('kcal', '-') }}</b></div>
+                  <div class="stat">蛋白质<b>{{ nutrition.get('protein', '-') }}</b></div>
+                  <div class="stat">碳水<b>{{ nutrition.get('carbs', '-') }}</b></div>
+                  <div class="stat">脂肪<b>{{ nutrition.get('fat', '-') }}</b></div>
                 </div>
               </div>
-
+              <div style="height:24px"></div>
               <div class="card">
                 <h2>首口识别结果</h2>
-                <div class="section-title">当前勺子中的食物</div>
                 <div class="list">
-                  {% for item in premeal.get('identified_items', []) %}
-                    <div class="list-item">
-                      <div>{{ item.label_zh }}（{{ item.name }}）</div>
-                      <div>{{ item.estimated_grams }}g</div>
-                    </div>
-                  {% endfor %}
-                </div>
-                <div style="height: 16px;"></div>
-                <div class="section-title">单口营养判断</div>
-                <div class="list">
-                  {% for key, value in summary.get('first_bite_assessment', {}).items() %}
-                    <div class="list-item"><div>{{ key }}</div><div>{{ value }}</div></div>
-                  {% endfor %}
+                {% for item in pre.get('identified_items', []) %}
+                  <div class="item"><span>{{ item.get('label_zh') or item.get('name') }}</span><span>{{ item.get('estimated_grams') }}g</span></div>
+                {% else %}
+                  <div class="item">暂无首口识别</div>
+                {% endfor %}
                 </div>
               </div>
-
+              <div style="height:24px"></div>
               <div class="card">
                 <h2>连续摄入序列</h2>
-                <div class="frames">
-                  {% for frame in meal.frames %}
-                    <div class="frame-row">
-                      <div class="frame-index">Frame {{ loop.index }}</div>
-                      <div>{{ frame.label_zh }} / {{ frame.food_group }}</div>
-                      <div>{{ frame.pace_hint }}</div>
-                    </div>
-                  {% else %}
-                    <div class="empty">还没有勺口识别数据。可先在串口输入 <code>m</code> 开始，再输入 <code>f</code> 上传当前一口的图像。</div>
-                  {% endfor %}
+                <div class="list">
+                {% for frame in meal.get('frames', []) %}
+                  <div class="item"><span>Frame {{ loop.index }} · {{ frame.get('label_zh') }} / {{ frame.get('food_group') }}</span><span>{{ frame.get('pace_hint') }}</span></div>
+                {% else %}
+                  <div class="item">暂无餐中采样</div>
+                {% endfor %}
                 </div>
               </div>
             </div>
-
-            <div class="stack">
+            <div>
               <div class="card">
                 <h2>餐后摄入结构分析</h2>
-                <div class="warn-box">
-                  <strong>家长总结：</strong><br />
-                  {{ summary.get('parent_summary', '暂无总结') }}
-                </div>
-                <div style="height: 14px;"></div>
-                <div class="section-title">偏差说明</div>
-                <div class="list">
-                  {% for note in summary.get('deviation_analysis', []) %}
-                    <div class="list-item">{{ note }}</div>
-                  {% endfor %}
-                </div>
+                <div class="tone">{{ summary.get('parent_summary', '暂无总结') }}</div>
               </div>
-
-              <div class="card">
-                <h2>问题归因</h2>
-                <div class="tone-box">{{ summary.get('attribution', '暂无归因') }}</div>
-                <div style="height: 14px;"></div>
-                <div class="section-title">儿童端反馈建议</div>
-                <div class="tone-box">{{ summary.get('child_feedback', '暂无反馈') }}</div>
-              </div>
-
+              <div style="height:24px"></div>
               <div class="card">
                 <h2>实际摄入代理</h2>
                 <div class="list">
-                  {% for key, value in summary.get('actual_intake_proxy', {}).items() %}
-                    <div class="list-item"><div>{{ key }}</div><div>{{ value }}</div></div>
-                  {% else %}
-                    <div class="list-item">暂无餐中采样</div>
-                  {% endfor %}
-                </div>
-                <div style="height: 14px;"></div>
-                <div class="section-title">进食节奏观察</div>
-                <div class="list">
-                  {% for key, value in summary.get('pace_observation', {}).items() %}
-                    <div class="list-item"><div>{{ key }}</div><div>{{ value }}</div></div>
-                  {% else %}
-                    <div class="list-item">暂无节奏数据</div>
-                  {% endfor %}
+                {% for key, value in summary.get('actual_intake_proxy', {}).items() %}
+                  <div class="item"><span>{{ key }}</span><span>{{ value }}</span></div>
+                {% else %}
+                  <div class="item">暂无数据</div>
+                {% endfor %}
                 </div>
               </div>
             </div>
           </div>
         {% else %}
-          <div class="card empty">还没有收到任何一餐的数据。先启动硬件 demo，并让勺具识别第一口食物。</div>
+          <div class="card empty">还没有收到任何一餐的数据。先启动硬件 demo，让勺具识别第一口食物。</div>
         {% endif %}
       </div>
     </body>
     </html>
     """
-
     summary_payload = _build_summary(meal) if meal else None
-    return render_template_string(
-        template,
-        meal=meal,
-        summary_payload=summary_payload,
-        mode="openai" if os.getenv("OPENAI_API_KEY") else "mock",
-    )
+    return render_template_string(template, meal=meal, summary_payload=summary_payload, mode=_model_mode())
 
 
 @app.get("/health")
 def health():
-    return jsonify(
-        {
-            "success": True,
-            "mode": "openai" if os.getenv("OPENAI_API_KEY") else "mock",
-            "meals_in_memory": len(MEALS),
-        }
-    )
+    return jsonify({"success": True, "mode": _model_mode(), "model": _model_name(), "meals_in_memory": len(MEALS)})
 
 
 @app.get("/")
 def dashboard():
     return _dashboard_html(_latest_meal())
+
+
+@app.get("/api/latest")
+def latest():
+    meal = _latest_meal()
+    return jsonify({"success": True, "meal": meal, "summary": _build_summary(meal) if meal else None})
 
 
 @app.post("/api/premeal")
@@ -549,20 +442,8 @@ def premeal():
     image_path = _save_upload(photo, "premeal")
     meal = _get_or_create_meal(meal_id, device_id)
     analysis = analyze_image(image_path, "premeal", meal)
-    meal["premeal"] = {
-        **analysis,
-        "image_path": str(image_path),
-        "captured_at": _now(),
-    }
-
-    return jsonify(
-        {
-            "success": True,
-            "meal_id": meal_id,
-            "mode": "openai" if os.getenv("OPENAI_API_KEY") else "mock",
-            "analysis": analysis,
-        }
-    )
+    meal["premeal"] = {**analysis, "image_path": str(image_path), "captured_at": _now()}
+    return jsonify({"success": True, "meal_id": meal_id, "mode": _model_mode(), "analysis": analysis})
 
 
 @app.post("/api/frame")
@@ -578,21 +459,8 @@ def frame():
     meal = _get_or_create_meal(meal_id, device_id)
     image_path = _save_upload(photo, "frame")
     analysis = analyze_image(image_path, "frame", meal)
-    frame_record = {
-        **analysis,
-        "image_path": str(image_path),
-        "captured_at": _now(),
-    }
-    meal["frames"].append(frame_record)
-
-    return jsonify(
-        {
-            "success": True,
-            "meal_id": meal_id,
-            "frame_index": len(meal["frames"]) - 1,
-            "analysis": analysis,
-        }
-    )
+    meal["frames"].append({**analysis, "image_path": str(image_path), "captured_at": _now()})
+    return jsonify({"success": True, "meal_id": meal_id, "frame_index": len(meal["frames"]) - 1, "analysis": analysis})
 
 
 @app.post("/api/summary")
@@ -601,7 +469,6 @@ def summary():
     meal_id = data.get("meal_id")
     if not meal_id or meal_id not in MEALS:
         return jsonify({"success": False, "error": "meal not found"}), 404
-
     return jsonify({"success": True, "summary": _build_summary(MEALS[meal_id])})
 
 

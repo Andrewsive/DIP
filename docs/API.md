@@ -38,7 +38,7 @@ Example response:
 }
 ```
 
-`mode` is `openai` when `OPENAI_API_KEY` is set. If the API call fails, individual analysis results may fall back to mock data.
+`mode` is `mock` by default, `bailian` when `DASHSCOPE_API_KEY` is set, and `openai` when `OPENAI_API_KEY` is set. If the real API call fails, individual analysis results may fall back to mock data and include `mode: "fallback_mock"` plus an `error` message.
 
 ## POST /api/premeal
 
@@ -209,4 +209,3 @@ GET /
 ```
 
 This renders the latest meal in a browser. It is not the final parent app, but it is useful for checking backend data quickly.
-

@@ -47,16 +47,41 @@ Health check:
 http://127.0.0.1:5000/health
 ```
 
-The backend runs in `mock` mode by default. To use a real OpenAI-compatible vision model, set environment variables before starting the server:
+The backend runs in `mock` mode by default. To use Alibaba Cloud Bailian / DashScope vision models, create `backend/.env` from `backend/.env.example` and fill in your own API key:
 
 ```powershell
-$env:OPENAI_API_KEY="your_api_key"
-$env:OPENAI_BASE_URL=""          # optional, for OpenAI-compatible providers
-$env:OPENAI_MODEL="gpt-4.1-mini" # optional
+cd C:\Users\yichen\Desktop\child_spoon_demo\backend
+Copy-Item .env.example .env
+notepad .env
 python server.py
 ```
 
-Do not commit real API keys. Use `backend/.env.example` only as a template.
+Recommended Bailian settings:
+
+```text
+DASHSCOPE_API_KEY=your_bailian_key
+OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+OPENAI_MODEL=qwen-vl-plus
+```
+
+You can also set the variables in PowerShell before starting the server:
+
+```powershell
+$env:DASHSCOPE_API_KEY="your_bailian_key"
+$env:OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
+$env:OPENAI_MODEL="qwen-vl-plus"
+python server.py
+```
+
+Do not commit real API keys. `backend/.env` is ignored by git; `backend/.env.example` is only a template. If `/health` returns `"mode": "bailian"`, the backend is using the real Bailian vision API.
+
+To test the real model with the latest uploaded spoon photo:
+
+```powershell
+cd C:\Users\yichen\Desktop\child_spoon_demo\backend
+python test_latest_image.py premeal
+python test_latest_image.py frame
+```
 
 ## Firmware Setup
 
