@@ -20,9 +20,11 @@ http://YOUR_COMPUTER_IP:5000
 
 1. The spoon device starts a meal session and captures the first spoonful.
 2. The device uploads the first spoonful image to `/api/premeal`.
-3. The device uploads subsequent spoonful images to `/api/frame`.
-4. The device calls `/api/summary` when the meal ends.
-5. The parent app can poll `/api/latest` to render the newest meal result, or use the dashboard at `/` for quick debugging.
+3. The device uploads subsequent candidate frames to `/api/frame`.
+4. The backend uses a hybrid gate: minimum time interval + LLM valid-bite judgement.
+5. Only accepted frames are counted as real spoonful intake; rejected frames are kept for debugging.
+6. The device calls `/api/summary` when the meal ends.
+7. The parent app can poll `/api/latest` to render the newest meal result, or use the dashboard at `/` for quick debugging.
 
 ## GET /health
 
@@ -60,6 +62,8 @@ Example response:
 ```
 
 For local frontend development, CORS headers are enabled by default. If needed, set `CORS_ALLOW_ORIGIN` in `backend/.env`.
+
+`meal.frames` contains accepted valid spoonfuls. `meal.rejected_frames` contains uploaded images that were filtered out because they were too close in time, blurry, empty, repeated, or not a valid bite.
 
 ## POST /api/premeal
 
@@ -107,14 +111,14 @@ Example response:
       "vegetable": "未检测到",
       "balance": "单口信息不足以判断整餐"
     },
-    "parent_message": "已识别当前这一口主要为主食，可继续累计多口结果后判断摄入结构。",
+    "parent_message": "已识别当前这一口主要为主食，可继续累计多口结果后判断摄入结构。"
   }
 }
 ```
 
 ## POST /api/frame
 
-Uploads one spoonful frame during the meal.
+Uploads one candidate frame during the meal. The backend does not blindly count every image as a spoonful. It first applies a time gate and asks the LLM whether the frame is a valid new bite.
 
 Content type:
 
@@ -137,13 +141,64 @@ Example response:
 {
   "success": true,
   "meal_id": "meal-abc123-10",
+  "accepted": true,
   "frame_index": 0,
+  "gate": {
+    "accepted": true,
+    "reason": "通过时间过滤与大模型有效单口判断。"
+  },
   "analysis": {
     "dominant_food_name": "rice",
     "label_zh": "米饭",
     "food_group": "主食",
+    "estimated_grams": 6,
+    "nutrition_estimate": {
+      "kcal": 7,
+      "protein": 0.2,
+      "carbs": 1.6,
+      "fat": 0
+    },
     "pace_hint": "normal",
+    "image_quality": {
+      "spoon_visible": true,
+      "food_visible": true,
+      "clarity": "clear",
+      "is_valid_bite": true,
+      "quality_score": 0.8
+    },
+    "bite_event": {
+      "is_new_bite": true,
+      "duplicate_of_previous": false,
+      "discard_reason": ""
+    },
     "parent_observation": "本口主要识别为米饭，归类为主食。"
+  }
+}
+```
+
+If the frame is uploaded successfully but filtered out:
+
+```json
+{
+  "success": true,
+  "meal_id": "meal-abc123-10",
+  "accepted": false,
+  "rejected_index": 0,
+  "gate": {
+    "accepted": false,
+    "reason": "大模型判断该帧不是有效单口。"
+  },
+  "analysis": {
+    "dominant_food_name": "未知",
+    "label_zh": "未知",
+    "food_group": "未知",
+    "image_quality": {
+      "spoon_visible": false,
+      "food_visible": false,
+      "clarity": "模糊",
+      "is_valid_bite": false,
+      "quality_score": 0.2
+    }
   }
 }
 ```
@@ -195,6 +250,8 @@ Example response:
   "summary": {
     "meal_id": "meal-abc123-10",
     "captured_frames": 3,
+    "uploaded_frames": 5,
+    "rejected_frames": 2,
     "planned_nutrition_estimate": {
       "kcal": 20.9,
       "protein": 0.5,
@@ -214,6 +271,12 @@ Example response:
       "连续多口以主食为主，存在摄入结构失衡风险。"
     ],
     "attribution": "主要表现为实际摄入偏好问题：孩子连续多口未摄入蔬菜。",
+    "event_filtering": {
+      "method": "time_gate_plus_llm_valid_bite",
+      "min_bite_interval_seconds": 4,
+      "accepted_frames": 3,
+      "rejected_frames": 2
+    },
     "parent_summary": "当前记录中未观察到蔬菜摄入，存在蔬菜摄入不足风险。"
   }
 }

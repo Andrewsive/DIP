@@ -40,6 +40,14 @@ http://127.0.0.1:5000/
 
 API notes for the parent-side frontend are in `docs/API.md`.
 
+Frame filtering strategy:
+
+- The device may upload many candidate images during a meal.
+- The backend does not count every image as one bite.
+- `/api/frame` first applies a minimum time interval gate, then asks the vision model whether the image is a valid new spoonful.
+- Accepted frames are stored in `meal.frames`; filtered frames are stored in `meal.rejected_frames` for debugging.
+- Set `MIN_BITE_INTERVAL_SECONDS` in `backend/.env` to tune duplicate filtering; set `FORCE_MOCK=1` when you want to test without calling the real model.
+
 For parent-side frontend integration, use:
 
 ```text
