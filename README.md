@@ -136,10 +136,11 @@ Wireless spoon demo mode:
 
 - Use USB-C only for firmware upload and debugging.
 - During the meal demo, power the board from a 3.7V LiPo battery. Communication still uses Wi-Fi HTTP upload to the Flask backend.
-- The full sketch stays idle after boot by default. Press the optional record button, or send `m` over Serial while debugging, to start capture/upload.
+- With `WIRELESS_AUTO_DEMO_MODE=true`, the full sketch starts one meal automatically after boot.
 - `RECORD_BUTTON_PIN` is `D1` by default. Connect a push button between `D1` and `GND`; the internal pull-up is enabled in firmware.
-- After start, the device captures the first bite after `AUTO_FIRST_BITE_DELAY_MS`, uploads spoonful frames every `MEAL_FRAME_INTERVAL_MS`, and requests a summary after `AUTO_SUMMARY_AFTER_FRAMES` frames.
-- Set `WIRELESS_AUTO_DEMO_MODE` to `true` only if you want the device to start recording immediately after battery power-on.
+- After start, the device captures the first bite after `AUTO_FIRST_BITE_DELAY_MS`, then uploads candidate spoonful frames every `MEAL_FRAME_INTERVAL_MS`.
+- `AUTO_SUMMARY_AFTER_FRAMES=0` keeps the current meal active until the record button is pressed again or `e` is sent in Serial Monitor.
+- `AUTO_RESTART_AFTER_SUMMARY=false` prevents the firmware from automatically starting a new meal after a summary is requested.
 
 ## Debugging Notes
 

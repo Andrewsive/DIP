@@ -44,7 +44,8 @@ const bool WIRELESS_AUTO_DEMO_MODE = true;   // true starts recording immediatel
 const int RECORD_BUTTON_PIN = D1;            // Connect button between D1 and GND. Set to -1 to disable.
 const unsigned long AUTO_FIRST_BITE_DELAY_MS = 12000UL;
 const unsigned long AUTO_NEXT_MEAL_DELAY_MS = 15000UL;
-const int AUTO_SUMMARY_AFTER_FRAMES = 3;  // Set to 0 to disable auto summary.
+const bool AUTO_RESTART_AFTER_SUMMARY = false;
+const int AUTO_SUMMARY_AFTER_FRAMES = 0;  // 0 keeps one meal active until button/Serial end.
 
 // For automatic spoonful sampling after meal start.
 const unsigned long MEAL_FRAME_INTERVAL_MS = 8000UL;
@@ -377,7 +378,7 @@ void endMealSession() {
   currentMealId = "";
   firstBiteUploaded = false;
   uploadedFrameCount = 0;
-  if (WIRELESS_AUTO_DEMO_MODE) {
+  if (WIRELESS_AUTO_DEMO_MODE && AUTO_RESTART_AFTER_SUMMARY) {
     nextAutoMealAt = millis() + AUTO_NEXT_MEAL_DELAY_MS;
     Serial.printf("[Auto] next meal will start in %lu ms\n", AUTO_NEXT_MEAL_DELAY_MS);
   }
