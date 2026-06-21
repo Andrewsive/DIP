@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>儿童勺具配件技术路线录屏</title>
+  <style>
+    :root {
+      --paper: #f6eddf;
+      --ink: #2b241f;
+      --muted: #7e6f60;
+      --card: rgba(255, 252, 246, 0.9);
+      --line: rgba(80, 60, 42, 0.18);
+      --green: #6c8b68;
+      --brown: #8b6d4e;
+      --blue: #4d737d;
+      --warn: #c3884a;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "Noto Sans SC", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.88), transparent 28%),
+        radial-gradient(circle at 88% 16%, rgba(196, 222, 205, 0.65), transparent 25%),
+        linear-gradient(135deg, #fbf2e5 0%, #f1e4d3 100%);
+      overflow: hidden;
+    }
+
+    .stage {
+      width: 1280px;
+      height: 720px;
+      padding: 34px 42px 28px;
+      position: relative;
+      isolation: isolate;
+    }
+
+    .stage::before {
+      content: "";
+      position: absolute;
+      inset: 14px;
+      border: 1px solid rgba(115, 89, 61, 0.26);
+      border-radius: 28px;
+      pointer-events: none;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 24px;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 36px;
+      line-height: 1.18;
+      letter-spacing: 0.02em;
+      margin: 0 0 8px;
+    }
+
+    .subtitle {
+      font-size: 17px;
+      color: var(--muted);
+      max-width: 760px;
+      line-height: 1.7;
+    }
+
+    .status {
+      min-width: 292px;
+      padding: 16px 18px;
+      border-radius: 22px;
+      background: var(--card);
+      box-shadow: 0 16px 46px rgba(77, 54, 33, 0.1);
+      border: 1px solid var(--line);
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin: 3px 0;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .status-row strong {
+      color: var(--ink);
+      font-size: 16px;
+    }
+
+    .dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: #9aa39b;
+      margin-right: 8px;
+      box-shadow: 0 0 0 5px rgba(108, 139, 104, 0.14);
+    }
+
+    .dot.live { background: #4f9362; }
+
+    .main {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 22px;
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      box-shadow: 0 18px 54px rgba(77, 54, 33, 0.12);
+      padding: 22px;
+      min-height: 0;
+    }
+
+    .panel h2 {
+      margin: 0 0 16px;
+      font-size: 21px;
+      letter-spacing: 0.03em;
+    }
+
+    .route {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .step {
+      min-height: 100px;
+      padding: 14px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.56);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .step.active {
+      border-color: rgba(108, 139, 104, 0.56);
+      background: linear-gradient(145deg, rgba(239, 249, 236, 0.95), rgba(255, 255, 255, 0.66));
+    }
+
+    .step .idx {
+      font-size: 13px;
+      color: var(--brown);
+      font-weight: 700;
+      margin-bottom: 7px;
+    }
+
+    .step .name {
+      font-size: 17px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+
+    .step .desc {
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--muted);
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .metric {
+      padding: 14px 13px;
+      border-radius: 18px;
+      background: #fffaf2;
+      border: 1px solid var(--line);
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 7px;
+    }
+
+    .metric strong {
+      font-size: 22px;
+    }
+
+    .foods {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .food {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 17px;
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px solid var(--line);
+      font-size: 15px;
+    }
+
+    .food b { font-size: 18px; }
+    .food small { display: block; color: var(--muted); margin-top: 3px; }
+
+    .code-panel {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 14px;
+      min-height: 484px;
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tab {
+      padding: 8px 11px;
+      border-radius: 999px;
+      background: rgba(139, 109, 78, 0.1);
+      color: var(--brown);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .tab.active {
+      background: var(--brown);
+      color: #fff;
+    }
+
+    pre {
+      margin: 0;
+      height: 312px;
+      overflow: hidden;
+      padding: 17px;
+      border-radius: 20px;
+      background: #241f1b;
+      color: #f9efe0;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.62;
+      white-space: pre-wrap;
+      border: 1px solid rgba(0, 0, 0, 0.16);
+    }
+
+    .json {
+      min-height: 86px;
+      padding: 14px 16px;
+      border-radius: 20px;
+      background: rgba(77, 115, 125, 0.1);
+      color: #2c4b54;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .progress {
+      position: absolute;
+      left: 42px;
+      right: 42px;
+      bottom: 21px;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(139, 109, 78, 0.16);
+      overflow: hidden;
+    }
+
+    .bar {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--green), var(--warn));
+      animation: fill 50s linear forwards;
+    }
+
+    .caption {
+      position: absolute;
+      left: 54px;
+      bottom: 38px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @keyframes fill {
+      from { width: 0%; }
+      to { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="stage">
+    <div class="header">
+      <div>
+        <h1>可穿戴儿童勺具配件：技术路线验证</h1>
+        <div class="subtitle">
+          从勺面图像采集、有效单口筛选，到 Qwen-VL 食物识别、混合食物成分拆解与家长端反馈生成。
+        </div>
+      </div>
+      <div class="status">
+        <div class="status-row"><span><i class="dot" id="liveDot"></i>后端服务</span><strong id="backendStatus">检查中</strong></div>
+        <div class="status-row"><span>模型模式</span><strong id="modelMode">-</strong></div>
+        <div class="status-row"><span>当前餐次</span><strong id="mealId">-</strong></div>
+      </div>
+    </div>
+
+    <div class="main">
+      <section class="panel">
+        <h2>技术路线闭环</h2>
+        <div class="route" id="route"></div>
+
+        <div class="metrics">
+          <div class="metric"><span>上传候选帧</span><strong id="uploaded">-</strong></div>
+          <div class="metric"><span>有效单口</span><strong id="accepted">-</strong></div>
+          <div class="metric"><span>过滤无效帧</span><strong id="rejected">-</strong></div>
+          <div class="metric"><span>估算热量</span><strong id="kcal">-</strong></div>
+        </div>
+
+        <h2>混合食物成分拆解</h2>
+        <div class="foods" id="foods"></div>
+      </section>
+
+      <section class="panel code-panel">
+        <div>
+          <h2>真实代码与后台数据</h2>
+          <div class="tabs" id="tabs"></div>
+        </div>
+        <pre id="code"></pre>
+        <div class="json" id="jsonSummary">正在读取 /api/latest ...</div>
+      </section>
+    </div>
+
+    <div class="caption">真实后端接口：/health · /api/latest · /api/trends</div>
+    <div class="progress"><div class="bar"></div></div>
+  </div>
+
+  <script>
+    const API = "http://127.0.0.1:5000";
+
+    const steps = [
+      ["01", "勺具端采集", "XIAO ESP32S3 Sense 安装在勺柄末端，低频抓拍勺面图像。"],
+      ["02", "Wi‑Fi 上传", "电池供电状态下，将候选帧上传到本地 Flask 后端。"],
+      ["03", "有效单口筛选", "结合时间间隔与大模型判断，过滤模糊、空勺、重复帧。"],
+      ["04", "视觉大模型识别", "调用阿里云百炼 Qwen‑VL，识别食物类别与图像质量。"],
+      ["05", "成分拆解", "混合食物拆为米饭、蔬菜、丸子等 components。"],
+      ["06", "营养估算", "映射标准营养库，计算热量、蛋白质、碳水、脂肪。"],
+      ["07", "家长端反馈", "生成今日总结、今晚建议、长期建议与趋势入口。"],
+      ["08", "趋势分析", "保存历史餐次，支持近 7/14/30 天趋势查看。"]
+    ];
+
+    const snippets = [
+      {
+        title: "Firmware",
+        code: `// 勺具端：通电后自动进入一餐记录\nconst bool WIRELESS_AUTO_DEMO_MODE = true;\nconst unsigned long MEAL_FRAME_INTERVAL_MS = 8000UL;\n\n// 每一帧通过 Wi‑Fi 上传到 Flask 后端\nString url = String(SERVER_BASE_URL) + \"/api/frame\";\nhttp.POST(frameBuffer, frameLength);`
+      },
+      {
+        title: "Flask API",
+        code: `@app.post(\"/api/frame\")\ndef frame():\n    image_path = _save_upload(photo, \"frame\")\n    analysis = analyze_image(image_path, \"frame\", meal)\n    gate = _frame_gate(meal, analysis, captured_ts)\n\n    if gate[\"accepted\"]:\n        meal[\"frames\"].append(frame_record)\n    else:\n        meal[\"rejected_frames\"].append(frame_record)`
+      },
+      {
+        title: "Qwen‑VL",
+        code: `prompt = \"\"\"\nFocus on the food currently in or nearest the spoon.\nFor mixed food, do not only say mixed food.\nBreak it down into visible components.\nReturn JSON fields:\n  dominant_food_name, components,\n  estimated_grams, image_quality, bite_event\n\"\"\"`
+      },
+      {
+        title: "Components",
+        code: `"components": [\n  {"name": "rice", "label_zh": "米饭", "food_group": "主食", "estimated_grams": 5},\n  {"name": "broccoli", "label_zh": "西兰花", "food_group": "蔬菜", "estimated_grams": 2},\n  {"name": "meatball", "label_zh": "丸子", "food_group": "蛋白质", "estimated_grams": 3}\n]`
+      },
+      {
+        title: "Parent Feedback",
+        code: `summary.parent_feedback = {\n  today_meal_summary,\n  tonight_suggestion,\n  long_term_advice,\n  trend_summary\n}\n\nsummary.display_food_items // 前端推荐字段\nsummary.event_filtering    // 有效帧 / 过滤帧证据`
+      }
+    ];
+
+    function renderRoute(activeIndex = 0) {
+      const route = document.getElementById("route");
+      route.innerHTML = steps.map((s, i) => `
+        <div class="step ${i === activeIndex ? "active" : ""}">
+          <div class="idx">${s[0]}</div>
+          <div class="name">${s[1]}</div>
+          <div class="desc">${s[2]}</div>
+        </div>
+      `).join("");
+    }
+
+    function setSnippet(index) {
+      document.getElementById("tabs").innerHTML = snippets.map((s, i) => `<span class="tab ${i === index ? "active" : ""}">${s.title}</span>`).join("");
+      document.getElementById("code").textContent = snippets[index].code;
+    }
+
+    function safeNumber(value, fallback = "-") {
+      return value === undefined || value === null ? fallback : value;
+    }
+
+    async function loadData() {
+      try {
+        const [health, latest, trends] = await Promise.all([
+          fetch(`${API}/health`).then(r => r.json()),
+          fetch(`${API}/api/latest`).then(r => r.json()),
+          fetch(`${API}/api/trends?days=7`).then(r => r.json())
+        ]);
+
+        document.getElementById("liveDot").classList.add("live");
+        document.getElementById("backendStatus").textContent = health.success ? "在线" : "异常";
+        document.getElementById("modelMode").textContent = `${health.mode} · ${health.model}`;
+
+        const summary = latest.summary || {};
+        const meal = latest.meal || {};
+        document.getElementById("mealId").textContent = summary.meal_id || meal.meal_id || "-";
+        document.getElementById("uploaded").textContent = safeNumber(summary.uploaded_frames);
+        document.getElementById("accepted").textContent = safeNumber(summary.captured_frames);
+        document.getElementById("rejected").textContent = safeNumber(summary.rejected_frames);
+        document.getElementById("kcal").textContent = `${safeNumber(summary.actual_nutrition_estimate?.kcal, 0)} kcal`;
+
+        const foods = summary.display_food_items || Object.values(summary.component_totals || {});
+        document.getElementById("foods").innerHTML = foods.slice(0, 6).map(item => `
+          <div class="food">
+            <div><b>${item.label_zh}</b><small>${item.food_group} · 约 ${item.estimated_grams}g</small></div>
+            <b>${item.count}</b>
+          </div>
+        `).join("");
+
+        const compact = {
+          meal_id: summary.meal_id,
+          valid_bites: summary.captured_frames,
+          component_foods: foods.map(f => `${f.label_zh}:${f.count}`).join(" / "),
+          trend_7d: trends.trend?.trend_summary || "-"
+        };
+        document.getElementById("jsonSummary").textContent = JSON.stringify(compact, null, 2);
+      } catch (error) {
+        document.getElementById("backendStatus").textContent = "未连接";
+        document.getElementById("jsonSummary").textContent = String(error);
+      }
+    }
+
+    renderRoute(0);
+    setSnippet(0);
+    loadData();
+
+    let tick = 0;
+    setInterval(() => {
+      tick += 1;
+      renderRoute(tick % steps.length);
+      setSnippet(tick % snippets.length);
+      loadData();
+    }, 5200);
+  </script>
+</body>
+</html>

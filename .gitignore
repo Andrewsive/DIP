@@ -9,6 +9,10 @@ venv/
 uploads/*
 backend/uploads/*
 !backend/uploads/.gitkeep
+backend/data/*.json
+!backend/data/.gitkeep
+backend/latest_snapshot.json
+docs/recordings/
 *.log
 
 # Arduino / local build artifacts

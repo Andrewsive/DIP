@@ -54,6 +54,30 @@ For parent-side frontend integration, use:
 GET http://127.0.0.1:5000/api/latest
 ```
 
+Parent feedback fields in `/api/latest`:
+
+- `summary.parent_feedback.today_meal_summary`: 今天这一餐的营养总结
+- `summary.parent_feedback.tonight_suggestion`: 今晚可执行建议
+- `summary.parent_feedback.long_term_advice`: 长期习惯建议
+- `summary.actual_nutrition_estimate`: 本餐有效单口累计营养估算
+- `summary.component_totals`: 混合食物拆解后的成分累计
+- `summary.display_food_items`: 前端食物列表推荐字段，不会显示原始“混合食物”
+- `summary.event_filtering`: 上传帧、有效帧、过滤帧统计
+
+`summary.actual_intake_proxy` is component-based: it counts how many accepted spoonfuls contain each group. A mixed spoonful can count as both `主食` and `蔬菜`.
+For food ranking/list UI, prefer `summary.display_food_items` instead of aggregating `meal.frames[].label_zh`.
+
+Trend APIs:
+
+```text
+GET http://127.0.0.1:5000/api/trends
+GET http://127.0.0.1:5000/api/trends?days=7
+GET http://127.0.0.1:5000/api/trends?days=14
+GET http://127.0.0.1:5000/api/trends?days=30
+```
+
+The backend persists lightweight meal snapshots to `backend/data/meal_history.json` for trend calculation. This runtime file is ignored by git.
+
 If the frontend runs on another device in the same Wi-Fi network, replace `127.0.0.1` with the computer's LAN IP, for example `http://YOUR_COMPUTER_IP:5000/api/latest`.
 
 Health check:
